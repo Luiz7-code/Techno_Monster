@@ -1,0 +1,1049 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>TechnoMonster - Edição Final Equilibrada</title>
+  <style>
+  /* Remove margens e barras de rolagem da página */
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html, body {
+    width: 100%;
+    height: 100%;
+    overflow: hidden; /* Esconde barras de rolagem */
+    background-color: #000; /* Fundo preto para as bordas sobressalentes */
+    display: flex;
+    justify-content: center;
+    align-content: center;
+    align-items: center;
+  }
+
+  /* Se o jogo for em <canvas> */
+  canvas {
+    display: block;
+    width: 100vw;
+    height: 100vh;
+    object-fit: contain; /* Mantém a proporção correta sem distorcer as imagens */
+  }
+</style>
+<style>
+    @import url('https://fonts.googleapis.com/css2?family=Fredoka:wght@400;600;700&display=swap');
+    body {
+      margin: 0;
+      padding: 0;
+      background: #070a12;
+      color: #fff;
+      font-family: 'Fredoka', cursive, sans-serif;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      user-select: none;
+    }
+    #game-container {
+      position: relative;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.95);
+      border: 4px solid #1e293b;
+      border-radius: 20px;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      background: #0f172a;
+    }
+    #controls-info {
+      margin-top: 15px;
+      background: #1e293b;
+      padding: 12px 24px;
+      border-radius: 12px;
+      font-size: 14px;
+      text-align: center;
+      border: 1px solid #334155;
+      max-width: 1200px;
+      width: 90%;
+    }
+    .key {
+      background: #334155;
+      padding: 3px 8px;
+      border-radius: 6px;
+      color: #38bdf8;
+      font-weight: bold;
+    }
+  </style>
+</head>
+<body>
+
+  <h2 style="margin: 10px; color: #4ade80; text-shadow: 3px 3px 0px #000; font-size: 32px;">TECHNO MONSTER 🧟‍♂️⚡</h2>
+
+  <div id="game-container">
+    <canvas id="gameCanvas" width="1200" height="600"></canvas>
+  </div>
+
+  <div id="controls-info">
+    <b>Controles:</b> 
+    [<span class="key">SETA CIMA</span> / <span class="key">ESPAÇO</span>] Pulo Duplo | 
+    [<span class="key">C</span>] Coletar Lixo Comum | 
+    [<span class="key">X</span>] Guardar E-Lixo | 
+    [<span class="key">Y</span>] Plantar em Canteiros |
+    [<span class="key">R</span>] Reiniciar
+  </div>
+
+<script>
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+
+const GROUND_Y = 500;
+
+let gameState = 'NICKNAME'; // NICKNAME, START, PLAYING, ECOPONTO_PAUSE, GAMEOVER
+let playerName = "";
+
+let distance = 0;
+let scoreBase = 0;
+let phase = 1;
+let baseSpeed = 4.8;
+let speed = baseSpeed;
+
+let lives = 3;
+let eWasteInBag = 0;
+let seedsInBag = 0;
+let phaseDistanceGoal = 800;
+
+let totalCleanActions = 0;
+let flashRed = 0;
+let shakeTime = 0;
+let messageText = "";
+let messageTimer = 0;
+let animTime = 0;
+
+let ecopontoBuilding = null;
+let lastSpawnX = 0;
+let lastEcopontoBonus = 0;
+let phaseTotalScore = 0;
+
+let chainRemaining = 0;
+let lastChainY = 390;
+
+function getHighScores() {
+  const saved = localStorage.getItem('technoMonster_ranking');
+  return saved ? JSON.parse(saved) : [];
+}
+
+function saveScore(name, score) {
+  let scores = getHighScores();
+  scores.push({ name: name, score: score });
+  scores.sort((a, b) => b.score - a.score);
+  scores = scores.slice(0, 5);
+  localStorage.setItem('technoMonster_ranking', JSON.stringify(scores));
+}
+
+// PERSONAGEM MONSTRO
+const player = {
+  x: 120,
+  y: GROUND_Y - 56,
+  width: 52,
+  height: 56,
+  velocityY: 0,
+  gravity: 0.65,
+  jumpStrength: -13.2,
+  isGrounded: true,
+  jumpCount: 0,
+  invulnerableTimer: 0,
+  draw() {
+    if (this.invulnerableTimer > 0 && Math.floor(this.invulnerableTimer / 4) % 2 === 0) {
+      return;
+    }
+
+    ctx.save();
+    let bounce = (this.isGrounded && gameState === 'PLAYING') ? Math.sin(animTime * 0.25) * 4 : 0;
+    let tilt = this.isGrounded ? 0 : this.velocityY * 0.03;
+    let px = this.x;
+    let py = this.y + bounce;
+
+    ctx.translate(px + 26, py + 28);
+    ctx.rotate(tilt);
+    ctx.translate(-(px + 26), -(py + 28));
+
+    // Sombra
+    ctx.fillStyle = 'rgba(0,0,0,0.35)';
+    ctx.beginPath();
+    ctx.ellipse(px + 26, Math.min(GROUND_Y - 2, py + 55), 22, 6, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Corpo
+    let bodyGrad = ctx.createLinearGradient(px, py, px, py + this.height);
+    bodyGrad.addColorStop(0, '#4ade80');
+    bodyGrad.addColorStop(1, '#15803d');
+    ctx.fillStyle = bodyGrad;
+    ctx.beginPath();
+    ctx.roundRect(px, py, this.width, this.height, [22, 22, 12, 12]);
+    ctx.fill();
+
+    // Barriga
+    ctx.fillStyle = '#86efac';
+    ctx.beginPath();
+    ctx.ellipse(px + 26, py + 38, 16, 12, 0, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Olho
+    ctx.fillStyle = '#fff';
+    ctx.beginPath();
+    ctx.arc(px + 34, py + 18, 15, 0, Math.PI * 2);
+    ctx.fill();
+
+    let isBlinking = Math.sin(animTime * 0.05) > 0.95;
+    if (!isBlinking) {
+      ctx.fillStyle = '#ef4444';
+      ctx.beginPath();
+      ctx.arc(px + 37, py + 18, 7, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#000';
+      ctx.beginPath();
+      ctx.arc(px + 38, py + 18, 3, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = '#fff';
+      ctx.beginPath();
+      ctx.arc(px + 34, py + 15, 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = '#000';
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.arc(px + 34, py + 18, 10, 0, Math.PI);
+      ctx.stroke();
+    }
+
+    // Boca
+    ctx.fillStyle = '#0f172a';
+    ctx.beginPath();
+    ctx.arc(px + 30, py + 36, 13, 0, Math.PI);
+    ctx.fill();
+
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(px + 22, py + 36, 5, 6);
+    ctx.fillRect(px + 33, py + 36, 5, 6);
+
+    // Chifres
+    ctx.fillStyle = '#f59e0b';
+    ctx.beginPath();
+    ctx.moveTo(px + 8, py + 4);
+    ctx.lineTo(px - 2, py - 14);
+    ctx.lineTo(px + 16, py);
+    ctx.fill();
+
+    ctx.restore();
+  },
+  update() {
+    this.y += this.velocityY;
+    this.velocityY += this.gravity;
+
+    if (this.invulnerableTimer > 0) {
+      this.invulnerableTimer--;
+    }
+
+    if (this.y >= GROUND_Y - this.height) {
+      this.y = GROUND_Y - this.height;
+      this.velocityY = 0;
+      this.isGrounded = true;
+      this.jumpCount = 0;
+    }
+
+    platforms.forEach(plat => {
+      if (
+        this.x + this.width > plat.x &&
+        this.x < plat.x + plat.width &&
+        this.y + this.height >= plat.y &&
+        this.y + this.height <= plat.y + 18 &&
+        this.velocityY >= 0
+      ) {
+        this.y = plat.y - this.height;
+        this.velocityY = 0;
+        this.isGrounded = true;
+        this.jumpCount = 0;
+      }
+    });
+  },
+  jump() {
+    if (this.isGrounded || this.jumpCount < 2) {
+      this.velocityY = this.jumpStrength;
+      this.isGrounded = false;
+      this.jumpCount++;
+    }
+  }
+};
+
+let items = [];
+let obstacles = [];
+let platforms = [];
+let trees = [];
+
+function spawnWorldObjects() {
+  // BLOQUEIO ABSOLUTO: Se o Ecoponto estiver no jogo, nada de novo é gerado para garantir zona 100% segura
+  if (ecopontoBuilding) return;
+
+  const spawnX = canvas.width + 50;
+
+  // Processa sequência curta de plataformas suspensas caso ativa
+  if (chainRemaining > 0) {
+    if (spawnX - lastSpawnX < 90) return;
+
+    let step = Math.random() < 0.5 ? -60 : 60;
+    let nextY = Math.max(240, Math.min(410, lastChainY + step));
+    let platWidth = 140;
+
+    platforms.push({ x: spawnX, y: nextY, width: platWidth, height: 16 });
+
+    if (Math.random() < 0.30) {
+      let r = Math.random();
+      items.push({
+        x: spawnX + 30,
+        y: nextY - 38,
+        width: 38,
+        height: 38,
+        type: r < 0.5 ? 'RECICLAVEL' : (r < 0.8 ? 'ELETRONICO' : 'SEMENTE'),
+        subType: Math.floor(Math.random() * 3)
+      });
+    }
+
+    lastChainY = nextY;
+    lastSpawnX = spawnX + platWidth;
+    chainRemaining--;
+    return;
+  }
+
+  if (spawnX - lastSpawnX < 180) return;
+
+  const rand = Math.random();
+
+  // 1. DESAFIO RARO: MEGA MAR DE LIXO TÓXICO (6% de chance) - ENORME!
+  if (rand < 0.06) {
+    let numPlatforms = 12; // 12 Plataformas seguidas (Enorme travessia)
+    let platWidth = 110;
+    let gap = 55;
+    let marWidth = numPlatforms * (platWidth + gap) + 80;
+
+    obstacles.push({
+      x: spawnX,
+      y: GROUND_Y - 10,
+      width: marWidth,
+      height: 40,
+      type: 4,
+      isMega: true
+    });
+
+    let heights = [410, 320, 220, 310, 410, 300, 210, 310, 400, 300, 220, 330];
+
+    for (let p = 0; p < numPlatforms; p++) {
+      let px = spawnX + 40 + p * (platWidth + gap);
+      let py = heights[p % heights.length];
+
+      platforms.push({ x: px, y: py, width: platWidth, height: 18 });
+
+      if (Math.random() < 0.30) {
+        let r = Math.random();
+        items.push({
+          x: px + (platWidth / 2) - 19,
+          y: py - 38,
+          width: 38,
+          height: 38,
+          type: r < 0.5 ? 'RECICLAVEL' : (r < 0.8 ? 'ELETRONICO' : 'SEMENTE'),
+          subType: Math.floor(Math.random() * 3)
+        });
+      }
+    }
+
+    lastSpawnX = spawnX + marWidth + 220;
+    return;
+  }
+
+  // 2. MAR DE LIXO TÓXICO NORMAL (14% de chance)
+  if (rand >= 0.06 && rand < 0.20) {
+    let numPlatforms = 4;
+    let platWidth = 125;
+    let gap = 40;
+    let marWidth = numPlatforms * (platWidth + gap) + 60;
+
+    obstacles.push({
+      x: spawnX,
+      y: GROUND_Y - 10,
+      width: marWidth,
+      height: 40,
+      type: 4,
+      isMega: false
+    });
+
+    let heights = [400, 310, 230, 320];
+    for (let p = 0; p < numPlatforms; p++) {
+      let px = spawnX + 30 + p * (platWidth + gap);
+      let py = heights[p];
+      platforms.push({ x: px, y: py, width: platWidth, height: 18 });
+
+      if (Math.random() < 0.35) {
+        items.push({
+          x: px + (platWidth / 2) - 19,
+          y: py - 38,
+          width: 38,
+          height: 38,
+          type: Math.random() < 0.6 ? 'RECICLAVEL' : 'ELETRONICO',
+          subType: Math.floor(Math.random() * 3)
+        });
+      }
+    }
+
+    lastSpawnX = spawnX + marWidth + 180;
+    return;
+  }
+
+  // 3. PARKOUR TRADICIONAL CURTO (15% de chance)
+  if (rand >= 0.20 && rand < 0.35) {
+    chainRemaining = Math.floor(Math.random() * 2) + 2;
+    lastChainY = 380;
+    let platWidth = 150;
+    platforms.push({ x: spawnX, y: lastChainY, width: platWidth, height: 16 });
+    lastSpawnX = spawnX + platWidth;
+    chainRemaining--;
+    return;
+  }
+
+  // 4. OBSTÁCULOS TRADICIONAIS DE CHÃO (35% de chance - gameplay base forte)
+  if (rand >= 0.35 && rand < 0.70) {
+    let obsType = Math.floor(Math.random() * 4);
+    let obsHeight = obsType === 3 ? 100 : (obsType === 2 ? 16 : (obsType === 1 ? 48 : 42));
+    let obsWidth = obsType === 3 ? 34 : (obsType === 2 ? 52 : (obsType === 1 ? 34 : 28));
+
+    obstacles.push({
+      x: spawnX,
+      y: obsType === 2 ? GROUND_Y - 12 : GROUND_Y - obsHeight,
+      width: obsWidth,
+      height: obsHeight,
+      type: obsType
+    });
+
+    lastSpawnX = spawnX + 160;
+    return;
+  }
+
+  // 5. ITENS / CANTEIROS DE CHÃO (30% de chance - gameplay base)
+  if (rand >= 0.70) {
+    let r = Math.random();
+    let type = 'RECICLAVEL';
+    if (r < 0.35) type = 'RECICLAVEL';
+    else if (r < 0.55) type = 'ELETRONICO';
+    else if (r < 0.72) type = 'SEMENTE';
+    else type = 'CANTEIRO';
+
+    items.push({
+      x: spawnX,
+      y: type === 'CANTEIRO' ? GROUND_Y - 20 : GROUND_Y - 45,
+      width: type === 'CANTEIRO' ? 70 : 38,
+      height: type === 'CANTEIRO' ? 20 : 38,
+      type: type,
+      subType: Math.floor(Math.random() * 3)
+    });
+    lastSpawnX = spawnX + 120;
+  }
+}
+
+function triggerEcopontoBuilding() {
+  if (!ecopontoBuilding) {
+    let spawnX = canvas.width + 150;
+    ecopontoBuilding = {
+      x: spawnX,
+      y: GROUND_Y - 180,
+      width: 200,
+      height: 180,
+      processed: false
+    };
+
+    // LIMPEZA DE SEGURANÇA: Apaga qualquer obstáculo ou mar de lixo na área de aproximação e do Ecoponto
+    obstacles = obstacles.filter(obs => {
+      let safeZoneStart = spawnX - 250;
+      let safeZoneEnd = spawnX + 450;
+      let obsStart = obs.x;
+      let obsEnd = obs.x + obs.width;
+      return !(obsEnd > safeZoneStart && obsStart < safeZoneEnd);
+    });
+
+    // Remove plataformas suspensas da área para o terreno ficar 100% plano e limpo
+    platforms = platforms.filter(plat => {
+      let safeZoneStart = spawnX - 250;
+      let safeZoneEnd = spawnX + 450;
+      return !(plat.x + plat.width > safeZoneStart && plat.x < safeZoneEnd);
+    });
+  }
+}
+
+let spawnTimer = 0;
+
+function gameLoop() {
+  animTime++;
+  update();
+  render();
+  requestAnimationFrame(gameLoop);
+}
+
+function isPlayerNearItem(item, marginX = 25, marginY = 30) {
+  return (
+    player.x + player.width + marginX >= item.x &&
+    player.x - marginX <= item.x + item.width &&
+    player.y + player.height + marginY >= item.y &&
+    player.y - marginY <= item.y + item.height
+  );
+}
+
+function update() {
+  if (gameState !== 'PLAYING') return;
+
+  distance += speed * 0.05;
+  lastSpawnX -= speed;
+
+  // VERIFICAÇÃO DE SEGURANÇA DO ECOPONTO:
+  // Só ativa quando a meta for atingida E não houver nenhum Mar Tóxico (tipo 4) atravessando a borda direita da tela
+  if (distance >= phaseDistanceGoal * phase && !ecopontoBuilding) {
+    let isToxicSeaActive = obstacles.some(obs => obs.type === 4 && obs.x + obs.width > canvas.width - 100);
+    if (!isToxicSeaActive) {
+      triggerEcopontoBuilding();
+    }
+  }
+
+  player.update();
+
+  spawnTimer++;
+  let spawnRate = Math.max(25, 65 - (phase * 4));
+  if (spawnTimer > spawnRate) {
+    spawnWorldObjects();
+    spawnTimer = 0;
+  }
+
+  for (let i = platforms.length - 1; i >= 0; i--) {
+    platforms[i].x -= speed;
+    if (platforms[i].x < -400) platforms.splice(i, 1);
+  }
+
+  for (let i = obstacles.length - 1; i >= 0; i--) {
+    let obs = obstacles[i];
+    obs.x -= speed;
+
+    if (
+      player.x < obs.x + obs.width &&
+      player.x + player.width > obs.x &&
+      player.y < obs.y + obs.height &&
+      player.y + player.height > obs.y
+    ) {
+      if (obs.type === 4) {
+        if (player.invulnerableTimer <= 0) {
+          lives--;
+          flashRed = 20;
+          shakeTime = 15;
+          player.invulnerableTimer = 55;
+          player.velocityY = -9;
+
+          if (lives <= 0) {
+            let finalScore = scoreBase + Math.floor(distance);
+            saveScore(playerName, finalScore);
+            gameState = 'GAMEOVER';
+            showMessage("GAME OVER!");
+          } else {
+            showMessage(`CAIU NO LIXO TÓXICO! -1 Vida! (Restam: ${lives})`);
+          }
+        }
+      } else {
+        lives--;
+        flashRed = 20;
+        shakeTime = 15;
+        obstacles.splice(i, 1);
+
+        if (lives <= 0) {
+          let finalScore = scoreBase + Math.floor(distance);
+          saveScore(playerName, finalScore);
+          gameState = 'GAMEOVER';
+          showMessage("GAME OVER!");
+        } else {
+          showMessage(`COLISÃO! -1 Vida! (Restam: ${lives})`);
+        }
+      }
+      continue;
+    }
+
+    if (obs.x + obs.width < -300) obstacles.splice(i, 1);
+  }
+
+  for (let i = items.length - 1; i >= 0; i--) {
+    let item = items[i];
+    item.x -= speed;
+
+    let isColliding = 
+      player.x < item.x + item.width &&
+      player.x + player.width > item.x &&
+      player.y < item.y + item.height &&
+      player.y + player.height > item.y;
+
+    if (isColliding && item.type === 'SEMENTE') {
+      seedsInBag++;
+      totalCleanActions++;
+      showMessage("Semente coletada!");
+      items.splice(i, 1);
+      continue;
+    }
+
+    if (item && item.x < -100) items.splice(i, 1);
+  }
+
+  if (ecopontoBuilding) {
+    ecopontoBuilding.x -= speed;
+
+    if (player.x + player.width >= ecopontoBuilding.x + 30 && !ecopontoBuilding.processed) {
+      ecopontoBuilding.processed = true;
+      lastEcopontoBonus = 80 + (eWasteInBag * 25);
+      scoreBase += lastEcopontoBonus;
+      totalCleanActions += 5;
+      phaseTotalScore = scoreBase + Math.floor(distance);
+      gameState = 'ECOPONTO_PAUSE';
+    }
+
+    if (ecopontoBuilding.x < -400) ecopontoBuilding = null;
+  }
+
+  trees.forEach(tree => tree.x -= speed);
+
+  if (flashRed > 0) flashRed--;
+  if (shakeTime > 0) shakeTime--;
+  if (messageTimer > 0) messageTimer--;
+}
+
+function continueFromEcoponto() {
+  eWasteInBag = 0;
+  phase++;
+  speed = baseSpeed * Math.pow(1.15, phase - 1);
+  gameState = 'PLAYING';
+}
+
+function showMessage(txt) {
+  messageText = txt;
+  messageTimer = 90;
+}
+
+function drawParallaxCity() {
+  let cleanProgress = Math.min(1, totalCleanActions / 30);
+
+  let skyGrad = ctx.createLinearGradient(0, 0, 0, canvas.height);
+  if (cleanProgress < 1) {
+    skyGrad.addColorStop(0, interpolateColor('#0f172a', '#38bdf8', cleanProgress));
+    skyGrad.addColorStop(0.6, interpolateColor('#1e293b', '#60a5fa', cleanProgress));
+    skyGrad.addColorStop(1, interpolateColor('#291e1d', '#93c5fd', cleanProgress));
+  } else {
+    skyGrad.addColorStop(0, '#38bdf8');
+    skyGrad.addColorStop(1, '#93c5fd');
+  }
+  ctx.fillStyle = skyGrad;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  let sunColor = interpolateColor('rgba(234, 179, 8, 0.25)', 'rgba(250, 204, 21, 0.95)', cleanProgress);
+  ctx.fillStyle = sunColor;
+  ctx.beginPath();
+  ctx.arc(1050, 100, 75, 0, Math.PI * 2);
+  ctx.fill();
+
+  let p1 = (distance * 1.5) % 1200;
+  let bgBuildingColor = interpolateColor('#1e1b2e', '#64748b', cleanProgress);
+  ctx.fillStyle = bgBuildingColor;
+  for (let x = -1200; x < canvas.width + 1200; x += 220) {
+    let rx = x - p1;
+    ctx.fillRect(rx, 220, 130, 280);
+    ctx.fillRect(rx + 140, 260, 90, 240);
+  }
+
+  let p2 = (distance * 3) % 1200;
+  const buildingColors = ['#f43f5e', '#fb923c', '#fbbf24', '#818cf8', '#38bdf8'];
+
+  for (let x = -1200; x < canvas.width + 1200; x += 190) {
+    let rx = x - p2;
+    let bIndex = Math.abs(Math.floor(x / 190)) % buildingColors.length;
+    let finalColor = interpolateColor('#334155', buildingColors[bIndex], cleanProgress);
+    ctx.fillStyle = finalColor;
+    ctx.fillRect(rx, 260, 140, 240);
+
+    ctx.fillStyle = cleanProgress > 0.5 ? '#fef08a' : '#f59e0b';
+    ctx.fillRect(rx + 20, 280, 18, 18);
+    ctx.fillRect(rx + 60, 280, 18, 18);
+    ctx.fillRect(rx + 100, 280, 18, 18);
+    ctx.fillRect(rx + 20, 330, 18, 18);
+    ctx.fillRect(rx + 60, 330, 18, 18);
+    ctx.fillRect(rx + 100, 330, 18, 18);
+  }
+
+  // Chão
+  ctx.fillStyle = interpolateColor('#0f172a', '#475569', cleanProgress);
+  ctx.fillRect(0, GROUND_Y, canvas.width, 100);
+  ctx.fillStyle = interpolateColor('#334155', '#fde047', cleanProgress);
+  ctx.fillRect(0, GROUND_Y, canvas.width, 7);
+}
+
+function interpolateColor(color1, color2, factor) {
+  if (color1.startsWith('rgba')) return color1;
+  let c1 = parseInt(color1.slice(1), 16);
+  let c2 = parseInt(color2.slice(1), 16);
+
+  let r1 = (c1 >> 16) & 255, g1 = (c1 >> 8) & 255, b1 = c1 & 255;
+  let r2 = (c2 >> 16) & 255, g2 = (c2 >> 8) & 255, b2 = c2 & 255;
+
+  let r = Math.round(r1 + factor * (r2 - r1));
+  let g = Math.round(g1 + factor * (g2 - g1));
+  let b = Math.round(b1 + factor * (b2 - b1));
+
+  return `rgb(${r}, ${g}, ${b})`;
+}
+
+function drawDirtyVignette() {
+  let cleanProgress = Math.min(1, totalCleanActions / 25);
+  let dirtyOpacity = 0.90 - (cleanProgress * 0.90);
+
+  if (dirtyOpacity <= 0.02) return;
+
+  ctx.save();
+  let gradient = ctx.createRadialGradient(
+    canvas.width / 2, canvas.height / 2, 250,
+    canvas.width / 2, canvas.height / 2, 700
+  );
+  gradient.addColorStop(0, 'rgba(0,0,0,0)');
+  gradient.addColorStop(0.5, `rgba(30, 20, 10, ${dirtyOpacity * 0.7})`);
+  gradient.addColorStop(1, `rgba(10, 8, 4, ${dirtyOpacity})`);
+
+  ctx.fillStyle = gradient;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.restore();
+}
+
+function render() {
+  ctx.save();
+  if (shakeTime > 0) {
+    ctx.translate((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+  }
+
+  drawParallaxCity();
+
+  platforms.forEach(plat => {
+    ctx.fillStyle = '#475569';
+    ctx.beginPath(); ctx.roundRect(plat.x, plat.y, plat.width, plat.height, [6]); ctx.fill();
+    ctx.fillStyle = '#38bdf8'; ctx.fillRect(plat.x, plat.y, plat.width, 4);
+  });
+
+  trees.forEach(tree => {
+    ctx.fillStyle = '#78350f'; ctx.fillRect(tree.x + 16, GROUND_Y - 55, 14, 55);
+    ctx.fillStyle = '#22c55e'; ctx.beginPath(); ctx.arc(tree.x + 23, GROUND_Y - 70, 32, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#86efac'; ctx.beginPath(); ctx.arc(tree.x + 28, GROUND_Y - 78, 16, 0, Math.PI * 2); ctx.fill();
+  });
+
+  if (ecopontoBuilding) {
+    let ex = ecopontoBuilding.x;
+    let ey = ecopontoBuilding.y;
+    ctx.fillStyle = '#10b981'; ctx.fillRect(ex, ey, 200, 180);
+    ctx.fillStyle = '#047857';
+    ctx.beginPath(); ctx.moveTo(ex - 10, ey); ctx.lineTo(ex + 100, ey - 45); ctx.lineTo(ex + 210, ey); ctx.fill();
+    ctx.fillStyle = '#064e3b'; ctx.fillRect(ex + 60, ey + 80, 60, 100);
+    ctx.fillStyle = '#fde047'; ctx.fillRect(ex + 20, ey + 25, 160, 36);
+    ctx.fillStyle = '#000'; ctx.font = 'bold 18px Fredoka';
+    ctx.fillText("♻️ ECOPONTO", ex + 32, ey + 49);
+  }
+
+  player.draw();
+
+  obstacles.forEach(obs => {
+    ctx.save();
+    if (obs.type === 0) {
+      ctx.fillStyle = '#f97316';
+      ctx.beginPath(); ctx.moveTo(obs.x + 14, obs.y); ctx.lineTo(obs.x, obs.y + 42); ctx.lineTo(obs.x + 28, obs.y + 42); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.fillRect(obs.x + 4, obs.y + 22, 20, 5);
+    } else if (obs.type === 1) {
+      ctx.fillStyle = '#ef4444'; ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+      ctx.fillStyle = '#fff'; ctx.fillRect(obs.x, obs.y + 8, obs.width, 6); ctx.fillRect(obs.x, obs.y + 26, obs.width, 6);
+    } else if (obs.type === 2) {
+      ctx.fillStyle = '#451a03';
+      ctx.beginPath(); ctx.ellipse(obs.x + 26, obs.y + 8, 26, 7, 0, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#a3e635';
+      ctx.beginPath(); ctx.ellipse(obs.x + 26, obs.y + 6, 18, 4, 0, 0, Math.PI * 2); ctx.fill();
+    } else if (obs.type === 3) {
+      ctx.fillStyle = '#dc2626';
+      ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+      ctx.fillStyle = '#fef08a';
+      ctx.fillRect(obs.x + 6, obs.y + 6, obs.width - 12, obs.height - 12);
+      ctx.fillStyle = '#ef4444'; ctx.font = 'bold 18px sans-serif';
+      ctx.fillText("⚠️", obs.x + 4, obs.y + 58);
+    } else if (obs.type === 4) {
+      ctx.fillStyle = obs.isMega ? '#042f2e' : '#14532d';
+      ctx.fillRect(obs.x, obs.y, obs.width, obs.height + 15);
+      
+      ctx.fillStyle = obs.isMega ? '#22d3ee' : '#22c55e';
+      for (let bx = 20; bx < obs.width - 20; bx += 40) {
+        let bubbleY = obs.y + 8 + Math.sin((animTime * 0.15) + bx) * 6;
+        ctx.beginPath();
+        ctx.arc(obs.x + bx, bubbleY, obs.isMega ? 9 : 6, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      ctx.fillStyle = '#f59e0b';
+      ctx.fillRect(obs.x - 8, obs.y - 20, 12, 25);
+      ctx.fillRect(obs.x + obs.width - 4, obs.y - 20, 12, 25);
+
+      ctx.fillStyle = obs.isMega ? '#38bdf8' : '#a3e635'; 
+      ctx.font = 'bold 16px Fredoka';
+      let label = obs.isMega 
+        ? "⚡ DESAFIO ESPECIAL: MEGA MAR TÓXICO! (12 PLATAFORMAS) ⚡" 
+        : "☣️ MAR DE LIXO TÓXICO ☣️";
+      ctx.fillText(label, obs.x + 20, obs.y + 24);
+    }
+    ctx.restore();
+  });
+
+  items.forEach(item => {
+    ctx.save();
+    let x = item.x;
+    let y = item.y;
+
+    if (item.type === 'RECICLAVEL') {
+      if (item.subType === 0) {
+        ctx.fillStyle = '#ef4444'; ctx.beginPath(); ctx.roundRect(x + 6, y + 8, 24, 26, [5]); ctx.fill();
+        ctx.fillStyle = '#e2e8f0'; ctx.fillRect(x + 9, y + 4, 18, 4);
+      } else if (item.subType === 1) {
+        ctx.fillStyle = '#10b981'; ctx.beginPath(); ctx.roundRect(x + 10, y + 12, 16, 24, [4]); ctx.fill();
+        ctx.fillRect(x + 15, y + 2, 6, 12);
+      } else {
+        ctx.fillStyle = '#d97706'; ctx.fillRect(x + 2, y + 8, 32, 26);
+        ctx.fillStyle = '#92400e'; ctx.fillRect(x + 2, y + 8, 32, 6);
+      }
+      ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 11px Fredoka';
+      ctx.fillText("[C] PEGAR", x - 6, y - 6);
+    } else if (item.type === 'ELETRONICO') {
+      if (item.subType === 0) {
+        ctx.fillStyle = '#334155'; ctx.beginPath(); ctx.roundRect(x, y + 2, 36, 30, [6]); ctx.fill();
+        ctx.fillStyle = '#0284c7'; ctx.fillRect(x + 4, y + 6, 22, 20);
+      } else {
+        ctx.fillStyle = '#f59e0b'; ctx.beginPath(); ctx.roundRect(x + 6, y + 4, 22, 30, [4]); ctx.fill();
+        ctx.fillStyle = '#ef4444'; ctx.font = 'bold 14px sans-serif'; ctx.fillText("⚡", x + 10, y + 25);
+      }
+      ctx.fillStyle = '#ef4444'; ctx.font = 'bold 11px Fredoka';
+      ctx.fillText("[X] GUARDAR", x - 10, y - 6);
+    } else if (item.type === 'SEMENTE') {
+      ctx.fillStyle = '#15803d'; ctx.beginPath(); ctx.arc(x + 15, y + 15, 14, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#4ade80'; ctx.beginPath(); ctx.arc(x + 15, y + 15, 11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#86efac'; ctx.beginPath(); ctx.arc(x + 12, y + 11, 4, 0, Math.PI * 2); ctx.fill();
+      ctx.fillStyle = '#fff'; ctx.font = 'bold 10px Fredoka';
+      ctx.fillText("🌱", x + 8, y + 18);
+    } else if (item.type === 'CANTEIRO') {
+      ctx.fillStyle = '#78350f'; ctx.beginPath(); ctx.roundRect(x, y, item.width, item.height, [4]); ctx.fill();
+      ctx.fillStyle = '#fde047'; ctx.font = 'bold 11px Fredoka';
+      ctx.fillText("[Y] PLANTAR", x + 2, y - 6);
+    }
+    ctx.restore();
+  });
+
+  drawDirtyVignette();
+
+  if (flashRed > 0) {
+    ctx.fillStyle = 'rgba(239, 68, 68, 0.65)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // HUD
+  if (gameState === 'PLAYING' || gameState === 'ECOPONTO_PAUSE') {
+    ctx.fillStyle = '#fff'; ctx.font = 'bold 17px Fredoka';
+    ctx.fillText(`👤 ${playerName}`, 30, 40);
+    ctx.fillText(`Vidas: ${'❤️'.repeat(lives)}`, 200, 40);
+    ctx.fillText(`Fase: ${phase}`, 370, 40);
+    ctx.fillText(`Pontos: ${scoreBase + Math.floor(distance)}`, 500, 40);
+    ctx.fillText(`Mochila: 📦 ${eWasteInBag}`, 740, 40);
+    ctx.fillText(`Sementes: 🌱 ${seedsInBag}`, 960, 40);
+  }
+
+  if (messageTimer > 0) {
+    ctx.fillStyle = '#facc15'; ctx.font = 'bold 22px Fredoka';
+    ctx.fillText(messageText, canvas.width / 2 - 200, 95);
+  }
+
+  if (gameState === 'ECOPONTO_PAUSE') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(300, 90, 600, 420);
+    ctx.strokeStyle = '#10b981'; ctx.lineWidth = 4;
+    ctx.strokeRect(300, 90, 600, 420);
+
+    ctx.fillStyle = '#34d399'; ctx.font = 'bold 32px Fredoka';
+    ctx.fillText(`🏭 ECOPONTO ALCANÇADO - FASE ${phase}!`, 340, 150);
+
+    ctx.fillStyle = '#fff'; ctx.font = '18px Fredoka';
+    ctx.fillText(`Parabéns, ${playerName}! E-lixo descarregado com sucesso!`, 340, 200);
+
+    ctx.fillStyle = '#e2e8f0'; ctx.font = '17px Fredoka';
+    ctx.fillText(`• E-Lixos Descarregados: ${eWasteInBag} itens`, 350, 260);
+    ctx.fillText(`• Bônus do Ecoponto: +${lastEcopontoBonus} pts`, 350, 295);
+
+    ctx.fillStyle = '#fde047'; ctx.font = 'bold 24px Fredoka';
+    ctx.fillText(`🏆 PONTUAÇÃO TOTAL DA FASE: ${phaseTotalScore} PTS`, 350, 360);
+
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 20px Fredoka';
+    ctx.fillText("Pressione ESPAÇO para Avançar à Próxima Fase ▶", 330, 450);
+  }
+
+  // TELA NICKNAME
+  if (gameState === 'NICKNAME') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+    ctx.fillStyle = '#4ade80'; ctx.font = 'bold 36px Fredoka';
+    ctx.fillText("BEM-VINDO AO TECHNO MONSTER!", 310, 110);
+    ctx.fillStyle = '#fff'; ctx.font = '19px Fredoka';
+    ctx.fillText("Digite seu Nickname para jogar:", 460, 175);
+
+    ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.roundRect(450, 205, 300, 55, [10]); ctx.fill(); ctx.stroke();
+
+    ctx.fillStyle = '#38bdf8'; ctx.font = 'bold 26px Fredoka';
+    ctx.fillText(playerName + (Math.floor(animTime / 30) % 2 === 0 ? "|" : ""), 470, 242);
+
+    drawRankingTable(305);
+  }
+
+  // TELA START
+  if (gameState === 'START') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#4ade80'; ctx.font = 'bold 36px Fredoka';
+    ctx.fillText(`TUDO PRONTO, ${playerName.toUpperCase()}!`, 430, 100);
+
+    ctx.fillStyle = '#fff'; ctx.font = '18px Fredoka';
+    ctx.fillText("• [GAMEPLAY BASE RESTAURADA] Ação concentrada no chão com obstáculos e coleta!", 200, 170);
+    ctx.fillText("• [DESAFIO RARO] Encontre o 'Mega Mar Tóxico' (uma sequência gigante de 12 plataformas)!", 200, 215);
+    ctx.fillText("• [SISTEMA TÓXICO] O lixo líquido permanece na tela — cair nele custará suas vidas!", 200, 260);
+    ctx.fillText("• [REFLORESTAMENTO] Colete sementes e plante nos canteiros com [Y]!", 200, 305);
+
+    ctx.fillStyle = '#facc15'; ctx.font = 'bold 24px Fredoka';
+    ctx.fillText("Pressione ESPAÇO para Iniciar a Corrida!", 380, 420);
+  }
+
+  // TELA GAME OVER
+  if (gameState === 'GAMEOVER') {
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.96)';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    ctx.fillStyle = '#ef4444'; ctx.font = 'bold 40px Fredoka';
+    ctx.fillText("GAME OVER!", 480, 100);
+
+    ctx.fillStyle = '#fff'; ctx.font = '19px Fredoka';
+    ctx.fillText(`Jogador: ${playerName} | Pontuação Final: ${scoreBase + Math.floor(distance)} pts`, 380, 150);
+
+    drawRankingTable(200);
+
+    ctx.fillStyle = '#facc15'; ctx.font = 'bold 20px Fredoka';
+    ctx.fillText("Pressione R para Jogar Novamente", 440, 520);
+  }
+
+  ctx.restore();
+}
+
+function drawRankingTable(startY) {
+  let scores = getHighScores();
+  ctx.fillStyle = '#1e293b'; ctx.strokeStyle = '#334155'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.roundRect(360, startY, 480, 160, [12]); ctx.fill(); ctx.stroke();
+
+  ctx.fillStyle = '#facc15'; ctx.font = 'bold 18px Fredoka';
+  ctx.fillText("🏆 TOP 5 RANKING LOCAL 🏆", 480, startY + 30);
+
+  scores.forEach((item, index) => {
+    let y = startY + 64 + (index * 23);
+    ctx.fillStyle = '#fff'; ctx.font = '16px Fredoka';
+    ctx.fillText(`${index + 1}. ${item.name}`, 390, y);
+    ctx.fillText(`${item.score} pts`, 740, y);
+  });
+}
+
+// Controles Teclado
+window.addEventListener('keydown', (e) => {
+  if (gameState === 'NICKNAME') {
+    if (e.key === 'Enter' && playerName.trim().length > 0) {
+      gameState = 'START';
+    } else if (e.key === 'Backspace') {
+      playerName = playerName.slice(0, -1);
+    } else if (e.key.length === 1 && playerName.length < 12) {
+      playerName += e.key;
+    }
+    return;
+  }
+
+  if (e.code === 'Space' || e.code === 'ArrowUp') {
+    if (gameState === 'START') {
+      gameState = 'PLAYING';
+    } else if (gameState === 'ECOPONTO_PAUSE') {
+      continueFromEcoponto();
+    } else if (gameState === 'PLAYING') {
+      player.jump();
+    }
+  }
+
+  if (e.code === 'KeyC' && gameState === 'PLAYING') {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (isPlayerNearItem(items[i])) {
+        if (items[i].type === 'RECICLAVEL') {
+          scoreBase += 10;
+          totalCleanActions++;
+          showMessage("+10 Pts: Lixo Coletado!");
+          items.splice(i, 1);
+          break;
+        } else if (items[i].type === 'ELETRONICO') {
+          lives--;
+          scoreBase -= 20;
+          flashRed = 20;
+          items.splice(i, 1);
+          if (lives <= 0) {
+            saveScore(playerName, scoreBase + Math.floor(distance));
+            gameState = 'GAMEOVER';
+          }
+          break;
+        }
+      }
+    }
+  }
+
+  if (e.code === 'KeyX' && gameState === 'PLAYING') {
+    for (let i = items.length - 1; i >= 0; i--) {
+      if (items[i].type === 'ELETRONICO' && isPlayerNearItem(items[i])) {
+        eWasteInBag++;
+        totalCleanActions++;
+        showMessage("E-Lixo guardado na mochila!");
+        items.splice(i, 1);
+        break;
+      }
+    }
+  }
+
+  if (e.code === 'KeyY' && gameState === 'PLAYING') {
+    if (seedsInBag > 0) {
+      for (let i = items.length - 1; i >= 0; i--) {
+        if (items[i].type === 'CANTEIRO' && isPlayerNearItem(items[i])) {
+          seedsInBag--;
+          scoreBase += 15;
+          totalCleanActions += 2;
+          trees.push({ x: items[i].x });
+          showMessage("+15 Pts! Semente Plantada! 🌳");
+          items.splice(i, 1);
+          break;
+        }
+      }
+    }
+  }
+
+  if (e.code === 'KeyR' && (gameState === 'GAMEOVER' || gameState === 'PLAYING')) {
+    lives = 3; distance = 0; scoreBase = 0; totalCleanActions = 0;
+    phase = 1; speed = baseSpeed; eWasteInBag = 0; seedsInBag = 0;
+    items = []; obstacles = []; platforms = []; trees = []; ecopontoBuilding = null;
+    chainRemaining = 0;
+    gameState = 'PLAYING';
+  }
+});
+
+gameLoop();
+</script>
+</body>
+</html>
