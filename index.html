@@ -319,46 +319,78 @@ function spawnWorldObjects() {
 
   const rand = Math.random();
 
-  // 1. DESAFIO RARO: MEGA MAR DE LIXO TÓXICO (6% de chance) - ENORME!
-  if (rand < 0.06) {
-    let numPlatforms = 12; // 12 Plataformas seguidas (Enorme travessia)
-    let platWidth = 110;
-    let gap = 55;
-    let marWidth = numPlatforms * (platWidth + gap) + 80;
+  // 1. DESAFIO RARO: MEGA MAR DE LIXO TÓXICO (6% de chance) - EXTREMO!
+if (rand < 0.06) {
+  // CONFIGURAÇÃO DO MEGA MAR
+  const numPlatforms = 20;
+  const platWidth = 80;
+  const gap = 75;
 
-    obstacles.push({
-      x: spawnX,
-      y: GROUND_Y - 10,
-      width: marWidth,
-      height: 40,
-      type: 4,
-      isMega: true
+  // Largura total necessária para comportar as 20 plataformas
+  const marWidth = numPlatforms * (platWidth + gap) + 80;
+
+  // Cria o mar tóxico
+  obstacles.push({
+    x: spawnX,
+    y: GROUND_Y - 10,
+    width: marWidth,
+    height: 40,
+    type: 4,
+    isMega: true
+  });
+
+  // ALTURAS EXTREMAS E IMPREVISÍVEIS
+  // Alternância agressiva entre plataformas muito altas e muito baixas
+  const heights = [
+    430, 210,
+    400, 230,
+    420, 215,
+    390, 240,
+    430, 220,
+    405, 210,
+    425, 235,
+    395, 215,
+    430, 225,
+    410, 205,
+    425, 230,
+    400, 210,
+    430, 220
+  ];
+
+  // Cria as 20 plataformas
+  for (let p = 0; p < numPlatforms; p++) {
+    const px = spawnX + 40 + p * (platWidth + gap);
+    const py = heights[p];
+
+    platforms.push({
+      x: px,
+      y: py,
+      width: platWidth,
+      height: 18
     });
 
-    let heights = [410, 320, 220, 310, 410, 300, 210, 310, 400, 300, 220, 330];
+    // Itens nas plataformas
+    if (Math.random() < 0.30) {
+      const r = Math.random();
 
-    for (let p = 0; p < numPlatforms; p++) {
-      let px = spawnX + 40 + p * (platWidth + gap);
-      let py = heights[p % heights.length];
-
-      platforms.push({ x: px, y: py, width: platWidth, height: 18 });
-
-      if (Math.random() < 0.30) {
-        let r = Math.random();
-        items.push({
-          x: px + (platWidth / 2) - 19,
-          y: py - 38,
-          width: 38,
-          height: 38,
-          type: r < 0.5 ? 'RECICLAVEL' : (r < 0.8 ? 'ELETRONICO' : 'SEMENTE'),
-          subType: Math.floor(Math.random() * 3)
-        });
-      }
+      items.push({
+        x: px + (platWidth / 2) - 19,
+        y: py - 38,
+        width: 38,
+        height: 38,
+        type: r < 0.5
+          ? 'RECICLAVEL'
+          : (r < 0.8 ? 'ELETRONICO' : 'SEMENTE'),
+        subType: Math.floor(Math.random() * 3)
+      });
     }
-
-    lastSpawnX = spawnX + marWidth + 220;
-    return;
   }
+
+  // Impede que outro evento seja criado imediatamente depois
+  lastSpawnX = spawnX + marWidth + 220;
+
+  return;
+}
 
   // 2. MAR DE LIXO TÓXICO NORMAL (14% de chance)
   if (rand >= 0.06 && rand < 0.20) {
